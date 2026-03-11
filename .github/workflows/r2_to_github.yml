@@ -6,17 +6,35 @@ on:
   workflow_dispatch:      # 支持手动触发
 
 jobs:
-  R2_To_GitHub:
+  sync:
     runs-on: ubuntu-latest
 
-    env:
-      ACCOUNT_ID: ${{ secrets.ACCOUNT_ID }}
-      WORKER_NAME: ${{ secrets.WORKER_NAME }}
-      API_TOKEN: ${{ secrets.API_TOKEN }}
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4.2.2
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Sync files to GitHub
-        uses: fscarmen2/r2_to_github@v1.0.2
+      - name: Install rclone
+        run: curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone for R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          EOF
+
+      - name: Sync R2 to local
+        run: rclone sync r2:${{ secrets.R2_BUCKET_NAME }} . --exclude ".git/**" --exclude ".github/**"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Sync from R2: $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push
