@@ -31,7 +31,7 @@ jobs:
           EOF
 
       - name: Sync R2 to local
-        run: rclone sync r2:${{ secrets.R2_BUCKET_NAME }} . --exclude ".git/**" --exclude ".github/**"
+        run: rclone copy r2:${{ secrets.R2_BUCKET_NAME }} . --exclude ".git/**" --exclude ".github/**"
 
       - name: Commit and push
         run: |
