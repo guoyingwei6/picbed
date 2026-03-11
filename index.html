@@ -1,8 +1,119 @@
 <!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>Picbed</title></head>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Picbed</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #f5f5f5; font-family: sans-serif; padding: 24px; }
+    h1 { font-size: 1.2rem; color: #333; margin-bottom: 16px; font-weight: 500; }
+    #stats { font-size: 0.8rem; color: #999; margin-bottom: 20px; }
+    #gallery {
+      columns: 4 200px;
+      column-gap: 12px;
+    }
+    .img-item {
+      break-inside: avoid;
+      margin-bottom: 12px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+      cursor: pointer;
+    }
+    .img-item img {
+      width: 100%;
+      display: block;
+      transition: opacity 0.2s;
+    }
+    .img-item img:hover { opacity: 0.85; }
+    .img-path {
+      font-size: 0.7rem;
+      color: #aaa;
+      padding: 4px 8px 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #loading { color: #999; font-size: 0.9rem; }
+
+    /* Lightbox */
+    #lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 999;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      gap: 12px;
+    }
+    #lightbox.active { display: flex; }
+    #lightbox img { max-width: 90vw; max-height: 85vh; border-radius: 8px; }
+    #lightbox-url {
+      color: #ccc;
+      font-size: 0.75rem;
+      cursor: pointer;
+      user-select: all;
+    }
+    #lightbox-url:hover { color: #fff; }
+  </style>
+</head>
 <body>
-<p>Image hosting. Access images directly via path.</p>
-<p>Example: <code>/2026/01/image.png</code></p>
+  <h1>Picbed</h1>
+  <div id="stats"></div>
+  <div id="loading">加载中...</div>
+  <div id="gallery"></div>
+
+  <div id="lightbox">
+    <img id="lightbox-img" src="" alt="">
+    <div id="lightbox-url"></div>
+  </div>
+
+  <script>
+    const REPO = 'guoyingwei6/picbed';
+    const BRANCH = 'main';
+    const BASE_URL = `https://guoyingwei6.github.io/picbed`;
+    const IMG_EXTS = ['png','jpg','jpeg','gif','webp','avif','svg'];
+
+    async function load() {
+      const res = await fetch(`https://api.github.com/repos/${REPO}/git/trees/${BRANCH}?recursive=1`);
+      const data = await res.json();
+      const images = data.tree.filter(f => {
+        const ext = f.path.split('.').pop().toLowerCase();
+        return f.type === 'blob' && IMG_EXTS.includes(ext);
+      });
+
+      document.getElementById('loading').remove();
+      document.getElementById('stats').textContent = `共 ${images.length} 张图片`;
+
+      const gallery = document.getElementById('gallery');
+      images.forEach(f => {
+        const url = `${BASE_URL}/${f.path}`;
+        const div = document.createElement('div');
+        div.className = 'img-item';
+        div.innerHTML = `<img src="${url}" loading="lazy" alt="${f.path}"><div class="img-path">${f.path}</div>`;
+        div.onclick = () => showLightbox(url, f.path);
+        gallery.appendChild(div);
+      });
+    }
+
+    function showLightbox(url, path) {
+      document.getElementById('lightbox-img').src = url;
+      document.getElementById('lightbox-url').textContent = url;
+      document.getElementById('lightbox').classList.add('active');
+    }
+
+    document.getElementById('lightbox').addEventListener('click', (e) => {
+      if (e.target.id === 'lightbox' || e.target.id === 'lightbox-url') {
+        document.getElementById('lightbox').classList.remove('active');
+      }
+    });
+
+    load().catch(() => {
+      document.getElementById('loading').textContent = '加载失败，请刷新重试';
+    });
+  </script>
 </body>
 </html>
