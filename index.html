@@ -6,11 +6,42 @@
   <title>Picbed</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #f5f5f5; font-family: sans-serif; padding: 24px; }
-    h1 { font-size: 1.2rem; color: #333; margin-bottom: 16px; font-weight: 500; }
+    body { background: #f5f5f5; font-family: sans-serif; padding: 24px; color: #333; }
+
+    .breadcrumb {
+      font-size: 0.85rem;
+      margin-bottom: 20px;
+      color: #999;
+    }
+    .breadcrumb span { cursor: pointer; }
+    .breadcrumb span:hover { color: #333; }
+    .breadcrumb .sep { margin: 0 6px; }
+
+    h1 { font-size: 1.2rem; margin-bottom: 6px; font-weight: 500; }
     #stats { font-size: 0.8rem; color: #999; margin-bottom: 20px; }
+
+    /* 目录列表 */
+    .dir-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 12px;
+    }
+    .dir-item {
+      background: #fff;
+      border-radius: 10px;
+      padding: 20px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: box-shadow 0.15s;
+    }
+    .dir-item:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+    .dir-icon { font-size: 2rem; margin-bottom: 8px; }
+    .dir-name { font-size: 0.9rem; font-weight: 500; }
+    .dir-count { font-size: 0.75rem; color: #aaa; margin-top: 4px; }
+
+    /* 图片瀑布流 */
     #gallery {
-      columns: 4 200px;
+      columns: 4 180px;
       column-gap: 12px;
     }
     .img-item {
@@ -21,13 +52,9 @@
       background: #fff;
       cursor: pointer;
     }
-    .img-item img {
-      width: 100%;
-      display: block;
-      transition: opacity 0.2s;
-    }
+    .img-item img { width: 100%; display: block; transition: opacity 0.2s; }
     .img-item img:hover { opacity: 0.85; }
-    .img-path {
+    .img-name {
       font-size: 0.7rem;
       color: #aaa;
       padding: 4px 8px 6px;
@@ -35,6 +62,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+
     #loading { color: #999; font-size: 0.9rem; }
 
     /* Lightbox */
@@ -51,20 +79,16 @@
     }
     #lightbox.active { display: flex; }
     #lightbox img { max-width: 90vw; max-height: 85vh; border-radius: 8px; }
-    #lightbox-url {
-      color: #ccc;
-      font-size: 0.75rem;
-      cursor: pointer;
-      user-select: all;
-    }
+    #lightbox-url { color: #ccc; font-size: 0.75rem; cursor: pointer; user-select: all; }
     #lightbox-url:hover { color: #fff; }
   </style>
 </head>
 <body>
-  <h1>Picbed</h1>
+  <div class="breadcrumb" id="breadcrumb"></div>
+  <h1 id="title">Picbed</h1>
   <div id="stats"></div>
   <div id="loading">加载中...</div>
-  <div id="gallery"></div>
+  <div id="content"></div>
 
   <div id="lightbox">
     <img id="lightbox-img" src="" alt="">
@@ -74,39 +98,112 @@
   <script>
     const REPO = 'guoyingwei6/picbed';
     const BRANCH = 'main';
-    const BASE_URL = `https://guoyingwei6.github.io/picbed`;
+    const BASE_URL = 'https://guoyingwei6.github.io/picbed';
     const IMG_EXTS = ['png','jpg','jpeg','gif','webp','avif','svg'];
+
+    let allImages = [];
+    let currentLevel = 'year'; // year | month | images
+    let currentYear = null;
+    let currentMonth = null;
+
+    function isImage(path) {
+      return IMG_EXTS.includes(path.split('.').pop().toLowerCase());
+    }
 
     async function load() {
       const res = await fetch(`https://api.github.com/repos/${REPO}/git/trees/${BRANCH}?recursive=1`);
       const data = await res.json();
-      const images = data.tree.filter(f => {
-        const ext = f.path.split('.').pop().toLowerCase();
-        return f.type === 'blob' && IMG_EXTS.includes(ext);
-      });
-
+      allImages = data.tree.filter(f => f.type === 'blob' && isImage(f.path));
       document.getElementById('loading').remove();
-      document.getElementById('stats').textContent = `共 ${images.length} 张图片`;
-
-      const gallery = document.getElementById('gallery');
-      images.forEach(f => {
-        const url = `${BASE_URL}/${f.path}`;
-        const div = document.createElement('div');
-        div.className = 'img-item';
-        div.innerHTML = `<img src="${url}" loading="lazy" alt="${f.path}"><div class="img-path">${f.path}</div>`;
-        div.onclick = () => showLightbox(url, f.path);
-        gallery.appendChild(div);
-      });
+      showYears();
     }
 
-    function showLightbox(url, path) {
+    function getYears() {
+      const years = new Set(allImages.map(f => f.path.split('/')[0]).filter(p => /^\d{4}$/.test(p)));
+      return Array.from(years).sort().reverse();
+    }
+
+    function getMonths(year) {
+      const months = new Set(
+        allImages
+          .filter(f => f.path.startsWith(year + '/'))
+          .map(f => f.path.split('/')[1])
+          .filter(p => /^\d{2}$/.test(p))
+      );
+      return Array.from(months).sort().reverse();
+    }
+
+    function getImages(year, month) {
+      return allImages.filter(f => f.path.startsWith(`${year}/${month}/`));
+    }
+
+    function showYears() {
+      currentLevel = 'year'; currentYear = null; currentMonth = null;
+      const years = getYears();
+      document.getElementById('title').textContent = 'Picbed';
+      document.getElementById('stats').textContent = `共 ${allImages.length} 张图片`;
+      renderBreadcrumb();
+      const html = `<div class="dir-grid">${years.map(y => {
+        const count = allImages.filter(f => f.path.startsWith(y + '/')).length;
+        return `<div class="dir-item" onclick="showMonths('${y}')">
+          <div class="dir-icon">📁</div>
+          <div class="dir-name">${y}</div>
+          <div class="dir-count">${count} 张</div>
+        </div>`;
+      }).join('')}</div>`;
+      document.getElementById('content').innerHTML = html;
+    }
+
+    function showMonths(year) {
+      currentLevel = 'month'; currentYear = year; currentMonth = null;
+      const months = getMonths(year);
+      document.getElementById('title').textContent = year;
+      document.getElementById('stats').textContent = `${months.length} 个月份`;
+      renderBreadcrumb();
+      const html = `<div class="dir-grid">${months.map(m => {
+        const count = getImages(year, m).length;
+        return `<div class="dir-item" onclick="showImages('${year}','${m}')">
+          <div class="dir-icon">🗂️</div>
+          <div class="dir-name">${year}/${m}</div>
+          <div class="dir-count">${count} 张</div>
+        </div>`;
+      }).join('')}</div>`;
+      document.getElementById('content').innerHTML = html;
+    }
+
+    function showImages(year, month) {
+      currentLevel = 'images'; currentYear = year; currentMonth = month;
+      const images = getImages(year, month);
+      document.getElementById('title').textContent = `${year} / ${month}`;
+      document.getElementById('stats').textContent = `${images.length} 张图片`;
+      renderBreadcrumb();
+      const html = `<div id="gallery">${images.map(f => {
+        const url = `${BASE_URL}/${f.path}`;
+        const name = f.path.split('/').pop();
+        return `<div class="img-item" onclick="showLightbox('${url}')">
+          <img src="${url}" loading="lazy" alt="${name}">
+          <div class="img-name">${name}</div>
+        </div>`;
+      }).join('')}</div>`;
+      document.getElementById('content').innerHTML = html;
+    }
+
+    function renderBreadcrumb() {
+      const bc = document.getElementById('breadcrumb');
+      let parts = [`<span onclick="showYears()">首页</span>`];
+      if (currentYear) parts.push(`<span class="sep">/</span><span onclick="showMonths('${currentYear}')">${currentYear}</span>`);
+      if (currentMonth) parts.push(`<span class="sep">/</span><span>${currentMonth}</span>`);
+      bc.innerHTML = parts.join('');
+    }
+
+    function showLightbox(url) {
       document.getElementById('lightbox-img').src = url;
       document.getElementById('lightbox-url').textContent = url;
       document.getElementById('lightbox').classList.add('active');
     }
 
     document.getElementById('lightbox').addEventListener('click', (e) => {
-      if (e.target.id === 'lightbox' || e.target.id === 'lightbox-url') {
+      if (e.target.id !== 'lightbox-img') {
         document.getElementById('lightbox').classList.remove('active');
       }
     });
